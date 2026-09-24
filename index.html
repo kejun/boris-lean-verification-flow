@@ -1,27 +1,486 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Boris Lean Verification Flow</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    background: #0d1117; color: #e6edf3;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  }
-  .card { text-align: center; padding: 2rem; }
-  h1 { font-size: clamp(1.6rem, 4vw, 2.4rem); font-weight: 600; letter-spacing: 0.02em; margin-bottom: 1rem; }
-  p { color: #8b949e; font-size: 1rem; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3fb950; margin-right: 8px; animation: pulse 2s infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>一条 Slack 线程，走完 Lean 验证到 PR 合并</title>
+  <style>
+    :root {
+      --paper: #f6f7f4;
+      --surface: #ffffff;
+      --ink: #183036;
+      --muted: #566a70;
+      --line: #dce5e2;
+      --blue: #245db2;
+      --blue-soft: #eaf2ff;
+      --teal: #146e68;
+      --teal-soft: #e9f5f1;
+      --orange: #bd5f33;
+      --orange-soft: #fff0e6;
+      --purple: #6952a3;
+      --purple-soft: #f1edfa;
+      --dark: #142d33;
+      --shadow: 0 16px 42px rgba(23, 49, 52, .065);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.58;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; }
+    button, summary { font: inherit; }
+    :focus-visible { outline: 3px solid #eab85d; outline-offset: 3px; }
+    .skip-link {
+      position: absolute;
+      left: 12px;
+      top: -60px;
+      z-index: 30;
+      padding: 10px 14px;
+      color: white;
+      background: var(--dark);
+      border-radius: 8px;
+    }
+    .skip-link:focus { top: 12px; }
+    .page { max-width: 1220px; padding: 0 28px 76px; margin: auto; }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 22px;
+      padding: 26px 0 22px;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 750; letter-spacing: .02em; }
+    .brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: white; background: var(--dark); font-size: 14px; }
+    .topnav { display: flex; gap: 22px; flex-wrap: wrap; color: var(--muted); font-size: 13px; font-weight: 650; }
+    .topnav a { text-decoration: none; }
+    .topnav a:hover { color: var(--blue); }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) minmax(250px, .65fr);
+      gap: 28px;
+      align-items: stretch;
+      padding: clamp(32px, 5vw, 60px);
+      background:
+        radial-gradient(circle at 84% 8%, rgba(100, 185, 164, .23), transparent 38%),
+        linear-gradient(135deg, #112b31, #23484a);
+      color: #f6fbf8;
+      border-radius: 26px;
+      overflow: hidden;
+      box-shadow: 0 18px 50px rgba(17, 43, 49, .14);
+    }
+    .eyebrow { margin: 0 0 14px; color: #aee2d3; font-size: 12px; font-weight: 800; letter-spacing: .15em; text-transform: uppercase; }
+    h1 { max-width: 780px; margin: 0; font-size: clamp(32px, 4vw, 54px); line-height: 1.13; letter-spacing: -.045em; }
+    .hero p.intro { max-width: 680px; margin: 22px 0 0; color: #d6e8e3; font-size: clamp(15px, 1.6vw, 18px); }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 28px; }
+    .hero-meta span { padding: 7px 11px; border: 1px solid rgba(231, 250, 243, .2); border-radius: 999px; color: #d4ece5; font-size: 12px; }
+    .hero-result {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 0;
+      padding: 26px;
+      border: 1px solid rgba(240, 255, 250, .17);
+      border-radius: 21px;
+      background: rgba(243, 255, 249, .08);
+    }
+    .hero-result .mini { color: #bfe4d8; font-size: 12px; font-weight: 800; letter-spacing: .08em; }
+    .hero-result strong { display: block; margin-top: 2px; color: #ffffff; font-size: clamp(49px, 6vw, 80px); line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.075em; }
+    .hero-result .result-label { margin-top: 12px; font-size: 19px; font-weight: 750; }
+    .hero-result .result-quote { margin: 12px 0 0; color: #d5ece4; font-size: 13px; }
+
+    .section { margin-top: 70px; scroll-margin-top: 24px; }
+    .section-heading { display: flex; justify-content: space-between; align-items: end; gap: 22px; margin-bottom: 24px; }
+    .section-kicker { margin: 0 0 8px; color: var(--teal); font-size: 12px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+    h2 { margin: 0; font-size: clamp(25px, 3vw, 34px); line-height: 1.2; letter-spacing: -.035em; }
+    .section-heading p:last-child { max-width: 480px; margin: 0; color: var(--muted); font-size: 14px; }
+
+    .entry-flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .entry-card { position: relative; min-width: 0; padding: 20px 22px; border: 1px solid var(--line); border-radius: 17px; background: var(--surface); box-shadow: var(--shadow); }
+    .entry-card:not(:last-child)::after { content: "→"; position: absolute; z-index: 1; right: -19px; top: calc(50% - 19px); display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; color: var(--teal); background: var(--paper); font-size: 25px; font-weight: 500; }
+    .entry-no { color: var(--teal); font-size: 12px; font-weight: 850; letter-spacing: .1em; }
+    .entry-card strong { display: block; margin: 4px 0 4px; font-size: 17px; }
+    .entry-card p { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .model-panel { padding: 27px; border: 1px solid #c9dfd6; border-radius: 19px; background: #edf5f0; }
+    .model-lead { margin: 0 0 19px; color: #315c53; font-size: 15px; }
+    .model-parts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .model-part { min-width: 0; padding: 16px; border-radius: 12px; background: white; }
+    .model-part small { display: block; color: var(--teal); font-size: 11px; font-weight: 850; letter-spacing: .08em; }
+    .model-part strong { display: block; margin: 5px 0 3px; font-size: 16px; }
+    .model-part p { margin: 0; color: var(--muted); font-size: 12px; }
+    .model-example { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.1fr); gap: 13px; align-items: center; margin-top: 14px; padding: 17px 19px; border-radius: 12px; color: #e9f7f0; background: var(--dark); }
+    .model-example small { display: block; color: #aee2d3; font-size: 11px; font-weight: 850; letter-spacing: .07em; }
+    .model-example strong { display: block; margin-top: 5px; font-size: 14px; line-height: 1.5; }
+    .model-example .example-arrow { color: #9bd3c3; font-size: 25px; }
+    .model-foot { margin: 13px 0 0; color: #3f645b; font-size: 12px; }
+    .model-foot a { text-underline-offset: 2px; }
+
+    .machine-summary { display: flex; align-items: center; gap: 15px; padding: 18px 21px; margin-bottom: 15px; border-radius: 14px; color: #e9f7f0; background: var(--dark); }
+    .machine-summary strong { flex: 0 0 auto; font-size: 35px; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.05em; }
+    .machine-summary span { font-size: 13px; }
+    .machine-summary b { font-weight: 800; color: #bce6d9; }
+    .machine-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .machine { display: flex; flex-direction: column; min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+    .machine-head { display: flex; justify-content: space-between; align-items: center; gap: 7px; }
+    .machine-index { color: var(--teal); font-size: 12px; font-weight: 850; }
+    .machine-head code { padding: 4px 7px; border-radius: 5px; background: #edf2ef; color: #38655c; font-size: 11px; overflow-wrap: anywhere; text-align: right; }
+    .machine h3 { margin: 14px 0 0; font-size: 19px; letter-spacing: -.025em; }
+    .machine-lead { min-height: 46px; margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .machine-flow { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-height: 52px; padding: 10px 11px; margin: 15px 0; border-radius: 9px; background: #edf5f1; color: #286e60; font-size: 12px; font-weight: 750; }
+    .machine-flow i { color: #7faa9a; font-style: normal; }
+    .machine-problem { min-height: 66px; padding-left: 11px; margin: 0 0 18px; border-left: 3px solid #d48d64; color: #624b3e; font-size: 12px; }
+    .machine-problem strong { color: var(--orange); }
+    .machine-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: auto 0 0; padding-top: 12px; border-top: 1px solid var(--line); }
+    .machine-facts div { min-width: 0; }
+    .machine-facts dt { color: var(--muted); font-size: 10px; line-height: 1.3; }
+    .machine-facts dd { margin: 2px 0 0; color: var(--ink); font-size: 16px; font-weight: 850; font-variant-numeric: tabular-nums; }
+    .machine-caveat { margin: 14px 0 0; color: var(--muted); font-size: 12px; }
+    .chart-key { padding: 21px 23px; margin-top: 20px; border: 1px solid var(--line); border-radius: 15px; background: white; }
+    .chart-key h3 { margin: 0 0 11px; font-size: 16px; }
+    .chart-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 25px; }
+    .chart-legend div { display: flex; align-items: baseline; gap: 8px; color: var(--muted); font-size: 12px; }
+    .chart-legend i { display: inline-block; flex: 0 0 auto; width: 13px; height: 13px; border-radius: 2px; }
+    .chart-key p { margin: 13px 0 0; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+
+    .overview { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-bottom: 30px; }
+    .overview a { display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 92px; padding: 13px 12px; border-radius: 12px; background: #e9efec; text-decoration: none; transition: transform .18s ease, background .18s ease; }
+    .overview a:hover { transform: translateY(-3px); background: #dfece7; }
+    .overview span { color: var(--teal); font-size: 12px; font-weight: 850; }
+    .overview strong { font-size: 13px; line-height: 1.3; }
+    .overview small { color: var(--muted); font-size: 11px; }
+
+    .timeline { position: relative; padding-left: 62px; }
+    .timeline::before { content: ""; position: absolute; left: 23px; top: 20px; bottom: 38px; width: 2px; background: linear-gradient(var(--teal), #bad7ce 82%, #bad7ce); }
+    .step { position: relative; margin-bottom: 18px; scroll-margin-top: 22px; }
+    .step:last-child { margin-bottom: 0; }
+    .step-number { position: absolute; left: -61px; top: 21px; z-index: 1; display: grid; place-items: center; width: 44px; height: 44px; border: 4px solid var(--paper); border-radius: 50%; background: var(--dark); color: white; font-size: 14px; font-weight: 850; font-variant-numeric: tabular-nums; }
+    .step-body { min-width: 0; padding: 24px; border: 1px solid var(--line); border-radius: 19px; background: var(--surface); box-shadow: var(--shadow); }
+    .step-head { display: flex; justify-content: space-between; align-items: start; gap: 15px; margin-bottom: 19px; }
+    .step-head h3 { margin: 0; font-size: 21px; letter-spacing: -.025em; }
+    .step-subtitle { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+    .timestamp { display: inline-flex; flex-shrink: 0; padding: 5px 9px; border-radius: 7px; background: #f0f3f1; color: var(--muted); font-size: 12px; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .io { display: grid; grid-template-columns: minmax(0, .92fr) 32px minmax(0, 1.1fr); align-items: stretch; gap: 14px; }
+    .io-label { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; font-size: 11px; font-weight: 850; letter-spacing: .08em; }
+    .io-label .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .input .io-label { color: var(--blue); }
+    .output .io-label { color: var(--teal); }
+    .output { display: flex; flex-direction: column; min-width: 0; }
+    .prompt { display: block; min-width: 0; padding: 15px 17px; border-radius: 12px 12px 12px 4px; background: var(--blue-soft); color: #1b467a; font-size: 13px; font-weight: 650; line-height: 1.52; overflow-wrap: anywhere; }
+    .prompt + .prompt { margin-top: 8px; }
+    .prompt .message-no { display: block; margin-bottom: 4px; color: #557da8; font-family: inherit; font-size: 10px; font-weight: 800; letter-spacing: .05em; }
+    .arrow { display: grid; align-items: center; justify-items: center; color: #92aaa5; font-size: 26px; }
+    .response { flex: 1; min-height: 77px; padding: 14px 16px; border-radius: 12px 12px 4px 12px; background: var(--teal-soft); }
+    .response strong { display: block; color: #145950; font-size: 15px; line-height: 1.36; }
+    .response p { margin: 6px 0 0; color: #385f59; font-size: 13px; }
+    .state-line { display: flex; gap: 9px; align-items: flex-start; margin-top: 17px; padding-top: 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+    .state-label { flex: 0 0 auto; padding: 2px 7px; border-radius: 5px; background: var(--orange-soft); color: var(--orange); font-weight: 800; }
+    .state-line strong { color: var(--ink); }
+    details { margin-top: 14px; }
+    summary { width: fit-content; color: var(--teal); font-size: 13px; font-weight: 750; cursor: pointer; }
+    summary:hover { text-decoration: underline; }
+    details[open] summary { margin-bottom: 13px; }
+    .detail-copy { margin: 0; color: var(--muted); font-size: 13px; }
+    .detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    .detail-item { min-width: 0; padding: 12px 14px; border-radius: 10px; background: #f4f7f5; }
+    .detail-item strong { display: block; color: var(--ink); font-size: 12px; }
+    .detail-item p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+    .detail-note { margin-top: 12px; color: var(--muted); font-size: 12px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .95em; }
+
+    .result-banner { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 27px 32px; border-radius: 20px; background: var(--dark); color: white; }
+    .result-banner small { color: #bce6d9; font-size: 12px; font-weight: 850; letter-spacing: .08em; }
+    .result-banner h3 { margin: 6px 0 3px; font-size: 27px; line-height: 1.22; letter-spacing: -.035em; }
+    .result-banner p { margin: 0; color: #d1e8e1; font-size: 13px; }
+    .result-banner .count { flex: 0 0 auto; font-size: clamp(42px, 5vw, 60px); line-height: 1; font-weight: 850; letter-spacing: -.06em; font-variant-numeric: tabular-nums; }
+    .status-rail { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 15px; }
+    .status-stop { position: relative; min-width: 0; padding: 17px 18px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+    .status-stop:not(:last-child)::after { content: "→"; position: absolute; right: -17px; top: calc(50% - 15px); z-index: 1; color: var(--teal); background: var(--paper); font-size: 21px; }
+    .status-stop small { display: block; color: var(--muted); font-size: 11px; font-weight: 800; }
+    .status-stop strong { display: block; margin-top: 4px; font-size: 18px; }
+    .status-stop:last-child { border-color: #b0d9c8; background: #ecf8f0; }
+    .status-stop:last-child strong { color: #176846; }
+
+    .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; margin-top: 17px; }
+    .metric { min-width: 0; padding: 23px 24px; border: 1px solid var(--line); border-radius: 17px; background: var(--surface); }
+    .metric-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 16px; }
+    .metric h3 { margin: 0; font-size: 16px; }
+    .metric-head strong { font-size: 24px; line-height: 1; font-variant-numeric: tabular-nums; }
+    .stackbar { display: flex; height: 24px; overflow: hidden; border-radius: 7px; background: #e9eeeb; }
+    .stackbar span { display: block; height: 100%; }
+    .stackbar .fix { width: 37.5%; background: #1b7b76; }
+    .stackbar .simplify { width: 37.5%; background: #7cb6a5; }
+    .stackbar .follow { width: 25%; background: #c0d7cd; }
+    .stackbar .proof { width: 79.1667%; background: #1b7b76; }
+    .stackbar .review { width: 20.8333%; background: #9acabb; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px 17px; margin-top: 12px; color: var(--muted); font-size: 12px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
+    .metric-note { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+    .delta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .delta { padding: 13px 15px; border-radius: 10px; background: #f3f6f4; }
+    .delta small { display: block; color: var(--muted); font-size: 11px; }
+    .delta strong { display: block; color: var(--ink); font-size: 25px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+    .delta.add strong { color: var(--teal); }
+    .delta.remove strong { color: var(--orange); }
+    .net { display: flex; justify-content: space-between; gap: 10px; padding-top: 13px; margin-top: 15px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+    .net strong { color: var(--ink); font-size: 14px; }
+
+    .reading-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+    .reading { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 15px; background: white; }
+    .reading .icon { display: grid; place-items: center; width: 31px; height: 31px; margin-bottom: 12px; border-radius: 9px; background: var(--purple-soft); color: var(--purple); font-size: 17px; font-weight: 850; }
+    .reading h3 { margin: 0 0 7px; font-size: 15px; }
+    .reading p { margin: 0; color: var(--muted); font-size: 12px; }
+    footer { padding: 34px 0 0; margin-top: 62px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; }
+      .hero-result { max-width: 400px; }
+      .overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .machine-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .reading-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 700px) {
+      .page { padding: 0 16px 48px; }
+      .topbar { align-items: flex-start; padding: 18px 0; }
+      .topnav { gap: 8px 13px; font-size: 12px; justify-content: flex-end; }
+      .hero { padding: 29px 22px; border-radius: 19px; }
+      .hero-result { padding: 20px; }
+      .section { margin-top: 48px; }
+      .section-heading { display: block; }
+      .section-heading p:last-child { margin-top: 10px; }
+      .entry-flow { grid-template-columns: 1fr; gap: 9px; }
+      .entry-card:not(:last-child)::after { right: calc(50% - 19px); top: auto; bottom: -21px; transform: rotate(90deg); }
+      .model-panel { padding: 18px; }
+      .model-parts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .model-example { grid-template-columns: 1fr; gap: 4px; }
+      .model-example .example-arrow { transform: rotate(90deg); width: fit-content; line-height: 1; }
+      .machine-grid { grid-template-columns: 1fr; }
+      .machine-lead, .machine-problem { min-height: 0; }
+      .chart-legend { grid-template-columns: 1fr; }
+      .overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .timeline { padding-left: 45px; }
+      .timeline::before { left: 16px; }
+      .step-number { left: -45px; width: 34px; height: 34px; top: 16px; border-width: 3px; font-size: 12px; }
+      .step-body { padding: 17px; }
+      .step-head h3 { font-size: 18px; }
+      .io { grid-template-columns: 1fr; gap: 10px; }
+      .arrow { height: 17px; transform: rotate(90deg); font-size: 22px; }
+      .response { min-height: 0; }
+      .detail-grid, .metric-grid { grid-template-columns: 1fr; }
+      .status-rail { grid-template-columns: 1fr; }
+      .status-stop:not(:last-child)::after { right: calc(50% - 10px); top: auto; bottom: -19px; transform: rotate(90deg); }
+      .result-banner { padding: 22px; }
+    }
+    @media (max-width: 420px) {
+      .topbar { display: block; }
+      .topnav { margin-top: 12px; justify-content: flex-start; }
+      .overview { gap: 6px; }
+      .overview a { padding: 11px 9px; }
+      .model-part { padding: 12px; }
+      .timestamp { font-size: 11px; }
+      .step-head { gap: 8px; }
+      .result-banner h3 { font-size: 21px; }
+      .result-banner .count { font-size: 40px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .overview a { transition: none; }
+    }
+  </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Boris Lean Verification Flow</h1>
-    <p><span class="dot"></span>页面待更新</p>
+  <a class="skip-link" href="#flow">跳至六步流程</a>
+  <div class="page">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">✳</span><span>视频演示 · 使用流程拆解</span></div>
+      <nav class="topnav" aria-label="页面导航">
+        <a href="#entry">从哪里开始</a>
+        <a href="#model">Lean 模型</a>
+        <a href="#six-models">六个状态机</a>
+        <a href="#flow">六步流程</a>
+        <a href="#result">最终结果</a>
+        <a href="#reading">如何解读</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">Slack → Claude → Lean 4 → PR</p>
+          <h1 id="page-title">一条 Slack 线程，推进到全部 PR 合并</h1>
+          <p class="intro">视频演示了用户在同一条 Slack 线程中持续追问：先验证六个状态机，再修复、简化、审查、汇总。下面逐步对照「输入了什么」与「画面返回了什么」。</p>
+          <div class="hero-meta" aria-label="视频概况"><span>约 100 秒加速回放</span><span>六个操作阶段</span><span>无音轨</span></div>
+        </div>
+        <div class="hero-result" aria-label="视频中的最终状态">
+          <span class="mini">视频中 Claude 最终报告</span>
+          <strong>16/16</strong>
+          <span class="result-label">PR 全部合并</span>
+          <p class="result-quote">“All 16 PRs are merged.” · 4:47 PM</p>
+        </div>
+      </section>
+
+      <section id="entry" class="section" aria-labelledby="entry-title">
+        <div class="section-heading"><div><p class="section-kicker">入口</p><h2 id="entry-title">实际是这样操作的</h2></div><p>用户只在 Slack 里发自然语言。画面没有展示安装配置、命令行操作或仓库路径。</p></div>
+        <div class="entry-flow" aria-label="操作入口的三个动作">
+          <div class="entry-card"><span class="entry-no">01 · 频道</span><strong>发起验证</strong><p>在 <code>#boris-tag-spam</code> 发送第一条请求。</p></div>
+          <div class="entry-card"><span class="entry-no">02 · 线程</span><strong>打开 Thread</strong><p>进入第一条消息下的回复线程。</p></div>
+          <div class="entry-card"><span class="entry-no">03 · 追问</span><strong>继续发指令</strong><p>发布、简化、统计和信息图都在同一线程完成。</p></div>
+        </div>
+      </section>
+
+      <section id="model" class="section" aria-labelledby="model-title">
+        <div class="section-heading"><div><p class="section-kicker">先理解一个词</p><h2 id="model-title">Lean 4 模型具体是什么？</h2></div><p>它是用 Lean 4 写出的程序行为抽象，可让证明器检查规则；这里的「模型」不是大语言模型。</p></div>
+        <div class="model-panel">
+          <p class="model-lead">把某一小段程序看成一台「小机器」：<strong>现在是什么状态，收到什么事件，会变成什么状态，以及需要保证什么。</strong></p>
+          <div class="model-parts" aria-label="状态机模型的四个组成部分">
+            <div class="model-part"><small>01 · STATE</small><strong>状态</strong><p>系统此刻记住什么，例如是否仍在等待权限。</p></div>
+            <div class="model-part"><small>02 · EVENT</small><strong>事件</strong><p>发生了什么，例如网络请求或权限提示收到答复。</p></div>
+            <div class="model-part"><small>03 · STEP</small><strong>转移规则</strong><p>收到事件后，系统应该进入什么新状态。</p></div>
+            <div class="model-part"><small>04 · THEOREM</small><strong>要证明的性质</strong><p>例如不进入错误状态，或循环最终能停止。</p></div>
+          </div>
+          <div class="model-example" aria-label="来自视频的简化示例">
+            <div><small>视频中的 session phase 问题 · 简化示意</small><strong>网络请求和权限提示交叠，后来都得到了答复</strong></div>
+            <div class="example-arrow" aria-hidden="true">→</div>
+            <div><small>希望证明的规则</small><strong>两个请求都答复后，session 不应继续卡在 <code>requires_action</code></strong></div>
+          </div>
+          <p class="model-foot">人先定义状态、事件、转移和性质，再写出证明交给 Lean 检查。视频里的 Claude 还报告把异常路径拿回真实代码复现。模型通过证明，不能直接等同于整个 SDK 源码都正确。概念依据：<a href="https://lean-lang.org/theorem_proving_in_lean4/Introduction/" target="_blank" rel="noopener noreferrer">Lean 官方入门</a>、<a href="https://lean-lang.org/theorem_proving_in_lean4/Propositions-and-Proofs/" target="_blank" rel="noopener noreferrer">命题与证明</a>。</p>
+        </div>
+      </section>
+
+      <section id="six-models" class="section" aria-labelledby="six-models-title">
+        <div class="section-heading"><div><p class="section-kicker">六份不同的行为抽象</p><h2 id="six-models-title">六个状态机，各自在检查什么</h2></div><p>根据截图中的模型名称和视频报告的故障做通俗解释。视频没有展示各模型的 Lean 状态与转移定义。</p></div>
+        <div class="machine-summary"><strong>1,359</strong><span><b>六个模型在 1:07 AM 报告的定理总数。</b>截图称 <code>lake build</code> 通过、0 个 <code>sorry</code>，并接受了列出的真实运行轨迹。</span></div>
+       <div><img src="https://mdn.alipayobjects.com/huamei_ytl0i7/afts/img/A*xf4JTZudkgcAAAAAe-AAAAgAejCYAQ/original" style="width:800px;max-width:100%"></div>
+        <div class="machine-grid">
+          <article class="machine"><div class="machine-head"><span class="machine-index">01 / 06</span><code>claude.ts stream</code></div><h3>流式响应</h3><p class="machine-lead">理解为跟踪响应内容怎样持续到达、结束，以及怎样记录完成结果。</p><div class="machine-flow" aria-label="接收内容，响应结束，记录结果"><span>接收内容</span><i>→</i><span>响应结束</span><i>→</i><span>记录结果</span></div><p class="machine-problem"><strong>视频中的反例：</strong>响应体在中途结束，却可能被当作成功，停止原因和费用没有记录。</p><dl class="machine-facts"><div><dt>定理</dt><dd>219</dd></div><div><dt>真实轨迹接受</dt><dd>6/6</dd></div><div><dt>复现项</dt><dd>8</dd></div></dl></article>
+          <article class="machine"><div class="machine-head"><span class="machine-index">02 / 06</span><code>withRetry</code></div><h3>请求重试</h3><p class="machine-lead">理解为跟踪遇到错误时要不要等待、还剩多少预算，以及何时停止。</p><div class="machine-flow" aria-label="请求，遇到错误，等待或重试，结束"><span>请求</span><i>→</i><span>错误</span><i>→</i><span>等待/重试</span><i>→</i><span>结束</span></div><p class="machine-problem"><strong>视频中的反例：</strong>429/529 的等待占用其他错误的预算；503 的超长 <code>Retry-After</code> 可令流程长时间休眠。</p><dl class="machine-facts"><div><dt>定理</dt><dd>201</dd></div><div><dt>真实轨迹接受</dt><dd>11/11</dd></div><div><dt>复现项</dt><dd>3</dd></div></dl></article>
+          <article class="machine"><div class="machine-head"><span class="machine-index">03 / 06</span><code>query.ts turn loop</code></div><h3>对话轮次循环</h3><p class="machine-lead">理解为跟踪一轮输出后继续、重试或终止，以及轮次上限是否生效。</p><div class="machine-flow" aria-label="模型输出，继续或重试，检查上限"><span>模型输出</span><i>→</i><span>继续/重试</span><i>→</i><span>检查上限</span></div><p class="machine-problem"><strong>视频中的反例：</strong>错误工具调用的重试与 <code>max_tokens</code> 截断恢复互相重置保护条件，可能无限循环。</p><dl class="machine-facts"><div><dt>定理</dt><dd>157</dd></div><div><dt>真实轨迹接受</dt><dd>33/33</dd></div><div><dt>复现项</dt><dd>8</dd></div></dl></article>
+          <article class="machine"><div class="machine-head"><span class="machine-index">04 / 06</span><code>engine turns</code></div><h3>引擎中的 turn</h3><p class="machine-lead">理解为跟踪 turn 的创建、流消费、取消和后续发送。</p><div class="machine-flow" aria-label="创建 turn，消费流，完成或取消"><span>创建 turn</span><i>→</i><span>消费流</span><i>→</i><span>完成/取消</span></div><p class="machine-problem"><strong>视频中的反例：</strong>构建失败或消费方退出时取消未上报，放弃后的 <code>send()</code> 仍可能排队。</p><dl class="machine-facts"><div><dt>定理</dt><dd>319</dd></div><div><dt>真实轨迹接受</dt><dd>400/400</dd></div><div><dt>复现项</dt><dd>3</dd></div></dl></article>
+          <article class="machine"><div class="machine-head"><span class="machine-index">05 / 06</span><code>session phase</code></div><h3>会话阶段</h3><p class="machine-lead">理解为跟踪 session 正在等待什么动作，以及收到答复后怎样继续。</p><div class="machine-flow" aria-label="等待网络与权限答复，均已答复，会话继续"><span>等待答复</span><i>→</i><span>全部答复</span><i>→</i><span>会话继续</span></div><p class="machine-problem"><strong>视频中的反例：</strong>网络请求和权限提示交叠，两者都已答复，session 仍可能卡在 <code>requires_action</code>。</p><dl class="machine-facts"><div><dt>定理</dt><dd>169</dd></div><div><dt>真实轨迹接受</dt><dd>68/68</dd></div><div><dt>复现项</dt><dd>4</dd></div></dl></article>
+          <article class="machine"><div class="machine-head"><span class="machine-index">06 / 06</span><code>SDK control protocol</code></div><h3>SDK 控制协议</h3><p class="machine-lead">理解为跟踪控制请求、取消与重新送达，以及传输关闭时的清理。</p><div class="machine-flow" aria-label="发送控制请求，取消或关闭，结束等待"><span>控制请求</span><i>→</i><span>取消/关闭</span><i>→</i><span>清理等待</span></div><p class="machine-problem"><strong>视频中的反例：</strong>取消后重新送达的权限请求可能无法再取消；传输关闭后等待者可能悬置。</p><dl class="machine-facts"><div><dt>定理</dt><dd>294</dd></div><div><dt>真实轨迹接受</dt><dd>2/2</dd></div><div><dt>复现项</dt><dd>4</dd></div></dl></article>
+        </div>
+        <p class="machine-caveat">卡片中的「跟踪什么」是依据名称和故障消息做的解释，不是对原始 Lean 定义的逐项转录。截图称精确定义、逐个转移的源码位置、模型假设及未证明范围收在 <code>lean-verify.tar.gz</code>；当前工作区没有这份附件。</p>
+        <div class="chart-key"><h3>怎么读截图里的统计</h3><div class="chart-legend"><div><i style="background:#242424" aria-hidden="true"></i><span><strong>黑色：</strong>已证明的不变量及辅助引理。</span></div><div><i style="background:#ee9265" aria-hidden="true"></i><span><strong>橙色：</strong>形式化的反例轨迹定理。</span></div><div><i style="background:#9b674f" aria-hidden="true"></i><span><strong>棕色：</strong>修复充分性与一致性的证明。</span></div><div><i style="background:#d9dddf" aria-hidden="true"></i><span><strong>灰色：</strong>文件内的其他一致性重放。</span></div></div><p><strong>「真实轨迹接受」</strong>指列出的真实运行记录能在模型里重放，不代表覆盖所有可能执行。六行「复现项」（原图 <code>findings reproduced</code>）相加是 30，后续汇总却称 24 个缺陷；视频没有交代两种计数如何对应，不能把 30 当作 30 个独立 bug。<code>query.ts turn loop</code> 另注 <code>+5/5 literal, pass 2</code>，截图没有解释其具体口径。</p></div>
+      </section>
+
+      <section id="flow" class="section" aria-labelledby="flow-title">
+        <div class="section-heading"><div><p class="section-kicker">输入 → 处理 → 输出</p><h2 id="flow-title">六步看完整流程</h2></div><p>每张卡片都保留视频中的英文原话；展开可查看修复点和状态说明。</p></div>
+        <nav class="overview" aria-label="跳转到流程步骤">
+          <a href="#step-1"><span>01</span><strong>验证与修复</strong><small>6 个模型</small></a>
+          <a href="#step-2"><span>02</span><strong>发布修复</strong><small>准备审查</small></a>
+          <a href="#step-3"><span>03</span><strong>证明指导简化</strong><small>补审查缺口</small></a>
+          <a href="#step-4"><span>04</span><strong>发布新增 PR</strong><small>等待审批</small></a>
+          <a href="#step-5"><span>05</span><strong>统计成果</strong><small>核对差异</small></a>
+          <a href="#step-6"><span>06</span><strong>生成信息图</strong><small>全部合并</small></a>
+        </nav>
+
+        <div class="timeline">
+          <article id="step-1" class="step">
+            <div class="step-number" aria-hidden="true">01</div>
+            <div class="step-body">
+              <div class="step-head"><div><h3>用 Lean 验证状态机</h3><p class="step-subtitle">委派问题发现、复现、证明与初始修复</p></div><span class="timestamp">视频 00–30s</span></div>
+              <div class="io">
+                <div class="input"><div class="io-label"><span class="dot"></span>用户实际输入</div><div class="prompt">Use lean to verify the sdk and Claude.ts state machine</div></div>
+                <div class="arrow" aria-hidden="true">→</div>
+                <div class="output"><div class="io-label"><span class="dot"></span>Claude 在画面中报告</div><div class="response"><strong>六个 Lean 4 模型 + 六个修复 PR</strong><p>模型覆盖 stream、retry、turn loop、engine、session phase、SDK control；附证明图与 <code>lean-verify.tar.gz</code>。</p></div></div>
+              </div>
+              <div class="state-line"><span class="state-label">此时状态</span><span><strong>六个修复 PR 是 draft。</strong>Claude 报告复现反例、回放真实运行、执行 <code>lake build</code>，早期审计为 1,359 个定理、0 个 <code>sorry</code>。</span></div>
+              <details><summary>展开：六类问题与 PR 编号</summary><div class="detail-grid">
+                <div class="detail-item"><strong>#72128 · Session phase</strong><p>网络请求与权限提示交叠后，session 可能卡在 <code>requires_action</code>。</p></div>
+                <div class="detail-item"><strong>#72130 · Turn loop</strong><p>两种恢复路径互相重置保护条件，可能形成无限循环。</p></div>
+                <div class="detail-item"><strong>#72140 · Stream</strong><p>响应中途结束可能被误判为成功，缺少停止原因与费用记录。</p></div>
+                <div class="detail-item"><strong>#72145 · Retry</strong><p>等待可能耗尽重试预算；过长的 <code>Retry-After</code> 使流程休眠。</p></div>
+                <div class="detail-item"><strong>#72135 · SDK control</strong><p>取消后重新送达的请求和传输关闭可能留下悬置等待。</p></div>
+                <div class="detail-item"><strong>#72162 · Engine turns</strong><p>部分退出路径不报告取消，放弃后的 <code>send()</code> 可能被静默排队。</p></div>
+              </div><p class="detail-note">Claude 曾指出 engine 模型与部分真实运行不符，待修正后才报告 400/400 条轨迹通过。</p></details>
+            </div>
+          </article>
+
+          <article id="step-2" class="step">
+            <div class="step-number" aria-hidden="true">02</div>
+            <div class="step-body">
+              <div class="step-head"><div><h3>让六个修复 PR 接受审查</h3><p class="step-subtitle">从 draft 前进到 ready for review</p></div><span class="timestamp">视频 32–36s</span></div>
+              <div class="io"><div class="input"><div class="io-label"><span class="dot"></span>用户实际输入</div><div class="prompt">publush all prs</div></div><div class="arrow" aria-hidden="true">→</div><div class="output"><div class="io-label"><span class="dot"></span>Claude 在画面中报告</div><div class="response"><strong>“All six are marked ready for review.”</strong><p>Claude 理解了有拼写错误的指令，将六个修复 PR 标为可审查。</p></div></div></div>
+              <div class="state-line"><span class="state-label">此时状态</span><span><strong>可审查 ≠ 已合并。</strong><code>publush</code> 是视频中的原拼写。</span></div>
+            </div>
+          </article>
+
+          <article id="step-3" class="step">
+            <div class="step-number" aria-hidden="true">03</div>
+            <div class="step-body">
+              <div class="step-head"><div><h3>用证明指导代码简化</h3><p class="step-subtitle">同时推动修复 PR 满足条件后合并</p></div><span class="timestamp">视频 38–59s</span></div>
+              <div class="io"><div class="input"><div class="io-label"><span class="dot"></span>用户连续输入</div><div class="prompt"><span class="message-no">第一句</span>take that same proof and simplify the code</div><div class="prompt"><span class="message-no">第二句</span>and mark all prs merge when ready</div></div><div class="arrow" aria-hidden="true">→</div><div class="output"><div class="io-label"><span class="dot"></span>Claude 在画面中报告</div><div class="response"><strong>六个简化 PR + 四个审查后续 PR</strong><p>为初始修复开启满足条件后自动合并；按模块合并重复逻辑，并修补审查发现的遗漏。</p></div></div></div>
+              <div class="state-line"><span class="state-label">此时状态</span><span><strong>初始修复陆续合并；新增十个 PR 仍在准备。</strong>Claude 还纠正了首轮 turn-loop 修复未覆盖所有退出路径的说法。</span></div>
+              <details><summary>展开：为什么简化不是大删代码</summary><p class="detail-copy">Claude 表示证明显示大多数标志位和分支都可达，因此简化重点是合并重复实现，例如 <code>claude.ts</code> 中重复的收尾逻辑，以及 <code>query.ts</code> 中手工重建状态的循环。六个简化 PR 的非测试代码合计净减少 195 行。</p></details>
+            </div>
+          </article>
+
+          <article id="step-4" class="step">
+            <div class="step-number" aria-hidden="true">04</div>
+            <div class="step-body">
+              <div class="step-head"><div><h3>发布新增 PR，并设置条件合并</h3><p class="step-subtitle">处理审批和叠加 PR 的依赖顺序</p></div><span class="timestamp">视频 60–66s</span></div>
+              <div class="io"><div class="input"><div class="io-label"><span class="dot"></span>用户实际输入</div><div class="prompt">publish and mark merge when ready</div></div><div class="arrow" aria-hidden="true">→</div><div class="output"><div class="io-label"><span class="dot"></span>Claude 在画面中报告</div><div class="response"><strong>新增十个 PR 已发布</strong><p>六个简化 PR 和四个后续修补 PR 标记为满足条件后合并。</p></div></div></div>
+              <div class="state-line"><span class="state-label">此时状态</span><span><strong>这些 PR 当时仍需审批。</strong>涉及同一文件的 PR 需要按顺序落地，再对后续 PR 变基。</span></div>
+            </div>
+          </article>
+
+          <article id="step-5" class="step">
+            <div class="step-number" aria-hidden="true">05</div>
+            <div class="step-body">
+              <div class="step-head"><div><h3>追问工作量和缺陷数量</h3><p class="step-subtitle">从 PR 差异汇总非测试代码和测试</p></div><span class="timestamp">视频 67–75s</span></div>
+              <div class="io"><div class="input"><div class="io-label"><span class="dot"></span>用户实际输入</div><div class="prompt">how many prs was that total? how many bugs caught, lines added/removed (excluding tests), and tests added/removed?</div></div><div class="arrow" aria-hidden="true">→</div><div class="output"><div class="io-label"><span class="dot"></span>Claude 在画面中报告</div><div class="response"><strong>统计 16 个 PR、24 个缺陷</strong><p>并汇总非测试代码 +1,381/−1,163 行，测试用例 +94/−9。</p></div></div></div>
+              <div class="state-line"><span class="state-label">此时状态</span><span><strong>统计完成。</strong>24 个缺陷由 19 个证明工作发现和 5 个审查发现组成。</span></div>
+            </div>
+          </article>
+
+          <article id="step-6" class="step">
+            <div class="step-number" aria-hidden="true">06</div>
+            <div class="step-body">
+              <div><img src="https://mdn.alipayobjects.com/huamei_ytl0i7/afts/img/A*_T2IT7YgqeQAAAAAe8AAAAgAejCYAQ/original" style="width:600px;max-width:100%"></div>
+              <div class="step-head"><div><h3>把结果画出来，等待最终合并</h3><p class="step-subtitle">静态信息图之后还有状态更新</p></div><span class="timestamp">视频 75–96s</span></div>
+              <div class="io"><div class="input"><div class="io-label"><span class="dot"></span>用户实际输入</div><div class="prompt">render it as a small infographic</div></div><div class="arrow" aria-hidden="true">→</div><div class="output"><div class="io-label"><span class="dot"></span>Claude 在画面中报告</div><div class="response"><strong>贴出信息图，最后确认全部合并</strong><p>图中汇总 16 个 PR、24 个缺陷、代码和测试增删；更晚的消息写着 “All 16 PRs are merged.”</p></div></div></div>
+              <div class="state-line"><span class="state-label">最终状态</span><span><strong>16/16 已合并是视频中 Claude 的最后报告。</strong>信息图上的「5 已合并、11 未合并」是生成时状态。</span></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="result" class="section" aria-labelledby="result-title">
+        <div class="section-heading"><div><p class="section-kicker">产出与状态</p><h2 id="result-title">最后得到什么</h2></div><p>数字来自视频中的 Claude 回复与信息图；下方把「生成时」与「最终」分开显示。</p></div>
+        <div class="result-banner"><div><small>最终一条明确回复 · 4:47 PM</small><h3>All 16 PRs are merged.</h3><p>此前的审批与合并进度已被这条更晚的消息更新。</p></div><div class="count" aria-label="十六个 PR 全部合并">16/16</div></div>
+        <div class="status-rail" aria-label="合并状态的时间变化">
+          <div class="status-stop"><small>信息图生成时</small><strong>5 已合并 · 11 未合并</strong></div>
+          <div class="status-stop"><small>随后 4:01 PM</small><strong>13 / 16 已合并</strong></div>
+          <div class="status-stop"><small>最终 4:47 PM</small><strong>16 / 16 已合并</strong></div>
+        </div>
+
+        <div class="metric-grid">
+          <div class="metric"><div class="metric-head"><h3>PR 构成</h3><strong>16</strong></div><div class="stackbar" role="img" aria-label="16 个 PR：6 个初始修复、6 个简化、4 个审查后续"><span class="fix"></span><span class="simplify"></span><span class="follow"></span></div><div class="legend"><span><i class="swatch" style="background:#1b7b76"></i>6 初始修复</span><span><i class="swatch" style="background:#7cb6a5"></i>6 代码简化</span><span><i class="swatch" style="background:#c0d7cd"></i>4 审查后续</span></div></div>
+          <div class="metric"><div class="metric-head"><h3>缺陷来源</h3><strong>24</strong></div><div class="stackbar" role="img" aria-label="24 个缺陷：19 个由证明工作发现，5 个在审查中发现"><span class="proof"></span><span class="review"></span></div><div class="legend"><span><i class="swatch" style="background:#1b7b76"></i>19 证明工作发现</span><span><i class="swatch" style="background:#9acabb"></i>5 审查发现</span></div><p class="metric-note">审查还找出首轮修复的 6 处缺口；它们不应再加到 24 个缺陷上。</p></div>
+          <div class="metric"><div class="metric-head"><h3>非测试代码行</h3><strong>净 +218</strong></div><div class="delta-grid"><div class="delta add"><small>新增</small><strong>+1,381</strong></div><div class="delta remove"><small>删除</small><strong>−1,163</strong></div></div><div class="net"><span>六个简化 PR 单独净减少 195 行</span><strong>1,381 − 1,163 = 218</strong></div></div>
+          <div class="metric"><div class="metric-head"><h3>测试变化</h3><strong>用例 +85 净增</strong></div><div class="delta-grid"><div class="delta add"><small>测试用例新增</small><strong>+94</strong></div><div class="delta remove"><small>测试用例删除</small><strong>−9</strong></div></div><div class="net"><span>测试代码行 +3,928 / −247</span><strong>删除 9 个中，8 个为改写</strong></div></div>
+        </div>
+      </section>
+
+      <section id="reading" class="section" aria-labelledby="reading-title">
+        <div class="section-heading"><div><p class="section-kicker">避免误读</p><h2 id="reading-title">这段演示该怎么理解</h2></div><p>区分模型证明、对话中的报告，以及能从画面直接核验的事实。</p></div>
+        <div class="reading-grid">
+          <div class="reading"><div class="icon" aria-hidden="true">1</div><h3>证明的是模型</h3><p>Lean 验证对象是从代码抽象出的六个状态机。Claude 还报告了真实轨迹回放、反例复现与回归测试；这些支持模型与实现对应，但不代表整个 SDK 已被形式化证明。</p></div>
+          <div class="reading"><div class="icon" aria-hidden="true">2</div><h3>定理数有未解释差异</h3><p>较早的文字审计与六个模型分项合计为 <strong>1,359</strong>；最终信息图写 <strong>1,529</strong>。视频没有说明多出的 170 个定理来自后续增加，还是图表笔误。</p></div>
+          <div class="reading"><div class="icon" aria-hidden="true">3</div><h3>这是 Slack 中的回报</h3><p>画面没有展示实际仓库差异、PR 页面、审批操作或 Lean 执行日志。16 个 PR 的状态、缺陷数和代码统计是 Claude 在录屏中的报告，未在这段视频里独立核验。</p></div>
+        </div>
+      </section>
+    </main>
+
+    <footer>内容依据本地视频 <code>xAaHSTynCKfK_hRk.mp4</code> 逐帧整理。视频末尾滚回较早消息；最终状态以上方 4:47 PM 的较晚回复为准。</footer>
   </div>
 </body>
 </html>
